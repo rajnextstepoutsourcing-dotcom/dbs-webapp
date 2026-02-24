@@ -164,9 +164,12 @@ def run_dbs_check_and_download_pdf(
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=headless,
-            channel="chrome",
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         context = browser.new_context(
             viewport={"width": 1280, "height": 800},
