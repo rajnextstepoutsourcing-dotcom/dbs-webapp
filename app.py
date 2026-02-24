@@ -490,7 +490,7 @@ async def dbs_run(request: Request):
     final_name = f"{out_surname} - DBS Check.pdf"
     from dbs_runner import run_dbs_check_and_download_pdf
 
-    out_dir = Path(APP_DIR) / "output"
+    out_dir = Path("/tmp") / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     result = await anyio.to_thread.run_sync(
