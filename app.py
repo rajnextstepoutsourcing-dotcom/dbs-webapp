@@ -135,72 +135,38 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 2) -> str:
 
 
 def pdf_to_images_bytes(pdf_bytes: bytes, max_pages: int = 1, dpi: int = 240) -> List[bytes]:
-    """Render page 1 and useful crops to PNG bytes (better for scanned PDFs).
+    """
+    Render the first page (and a few useful crops) to PNG bytes.
 
-    Order: top band, middle band, bottom band, full page.
-    Adds strong validation + encryption handling to avoid 500s on Render.
+    This is used for scanned PDFs before sending to Gemini Vision.
+    Hardened for production (bad uploads, encrypted PDFs) to avoid 500s on Render.
     """
     images: List[bytes] = []
 
-    # Basic sanity checks (prevents PyMuPDF crashing on bad uploads)
+    # Basic sanity checks
     if not pdf_bytes or len(pdf_bytes) < 100:
         raise ValueError("Uploaded file is empty or too small to be a valid PDF.")
-
     if not pdf_bytes.lstrip().startswith(b"%PDF"):
         raise ValueError("Uploaded file does not look like a PDF (missing %PDF header).")
 
+    # Open PDF
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     except Exception as e:
-        raise ValueError(f"Could not open PDF (corrupt/unsupported/encrypted). {e}")
+        raise ValueError(f"PyMuPDF failed to open PDF (corrupt/unsupported/encrypted). Details: {e}")
 
     try:
-        # Handle encrypted PDFs (common cause of failures)
-        try:
+        # Encrypted PDFs
+        if getattr(doc, "is_encrypted", False):
+            try:
+                doc.authenticate("")  # try empty password
+            except Exception:
+                pass
             if getattr(doc, "is_encrypted", False):
-                try:
-                    doc.authenticate("")  # try empty password
-                except Exception:
-                    pass
-                if getattr(doc, "is_encrypted", False):
-                    raise ValueError("PDF is password-protected. Please upload an unlocked PDF.")
-        except Exception:
-            # If encryption flags aren't available, continue; open would have failed otherwise
-            pass
+                raise ValueError("PDF is password-protected. Please upload an unlocked PDF.")
 
         if getattr(doc, "page_count", 0) <= 0:
             return images
-
-        page = doc.load_page(0)
-        zoom = dpi / 72.0
-        mat = fitz.Matrix(zoom, zoom)
-
-        rect = page.rect
-        bands = [
-            (0.0, 0.0, 1.0, 0.32),   # header/top
-            (0.0, 0.28, 1.0, 0.72),  # middle (name + DOB often here)
-            (0.0, 0.68, 1.0, 1.0),   # bottom (dates/notes)
-        ]
-
-        for x0, y0, x1, y1 in bands:
-            clip = fitz.Rect(
-                rect.x0 + rect.width * x0,
-                rect.y0 + rect.height * y0,
-                rect.x0 + rect.width * x1,
-                rect.y0 + rect.height * y1,
-            )
-            pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
-            images.append(pix.tobytes("png"))
-
-        # Full page last (fallback)
-        pix_full = page.get_pixmap(matrix=mat, alpha=False)
-        images.append(pix_full.tobytes("png"))
-        return images
-    finally:
-        try:
-            doc.close()
-        except Exception:
-            pass
 
         page = doc.load_page(0)
         zoom = dpi / 72.0
@@ -214,6 +180,7 @@ def pdf_to_images_bytes(pdf_bytes: bytes, max_pages: int = 1, dpi: int = 240) ->
             (0.0, 0.68, 1.0, 1.0),   # bottom (dates/notes)
         ]
 
+        # Crops first
         for x0, y0, x1, y1 in bands:
             clip = fitz.Rect(
                 rect.x0 + rect.width * x0,
@@ -224,14 +191,16 @@ def pdf_to_images_bytes(pdf_bytes: bytes, max_pages: int = 1, dpi: int = 240) ->
             pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
             images.append(pix.tobytes("png"))
 
-        # Full page last (fallback)
+        # Full page last
         pix_full = page.get_pixmap(matrix=mat, alpha=False)
         images.append(pix_full.tobytes("png"))
 
+        return images
     finally:
-        doc.close()
-    return images
-
+        try:
+            doc.close()
+        except Exception:
+            pass
 
 # -------------------------
 # Regex extraction (only works if PDF has a text layer)
