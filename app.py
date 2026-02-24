@@ -135,14 +135,73 @@ def extract_text_from_pdf(pdf_bytes: bytes, max_pages: int = 2) -> str:
 
 
 def pdf_to_images_bytes(pdf_bytes: bytes, max_pages: int = 1, dpi: int = 240) -> List[bytes]:
-    """Render first page and useful crops to PNG bytes (better for scanned PDFs).
+    """Render page 1 and useful crops to PNG bytes (better for scanned PDFs).
+
     Order: top band, middle band, bottom band, full page.
+    Adds strong validation + encryption handling to avoid 500s on Render.
     """
     images: List[bytes] = []
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    # Basic sanity checks (prevents PyMuPDF crashing on bad uploads)
+    if not pdf_bytes or len(pdf_bytes) < 100:
+        raise ValueError("Uploaded file is empty or too small to be a valid PDF.")
+
+    if not pdf_bytes.lstrip().startswith(b"%PDF"):
+        raise ValueError("Uploaded file does not look like a PDF (missing %PDF header).")
+
     try:
-        if doc.page_count <= 0:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        raise ValueError(f"Could not open PDF (corrupt/unsupported/encrypted). {e}")
+
+    try:
+        # Handle encrypted PDFs (common cause of failures)
+        try:
+            if getattr(doc, "is_encrypted", False):
+                try:
+                    doc.authenticate("")  # try empty password
+                except Exception:
+                    pass
+                if getattr(doc, "is_encrypted", False):
+                    raise ValueError("PDF is password-protected. Please upload an unlocked PDF.")
+        except Exception:
+            # If encryption flags aren't available, continue; open would have failed otherwise
+            pass
+
+        if getattr(doc, "page_count", 0) <= 0:
             return images
+
+        page = doc.load_page(0)
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+
+        rect = page.rect
+        bands = [
+            (0.0, 0.0, 1.0, 0.32),   # header/top
+            (0.0, 0.28, 1.0, 0.72),  # middle (name + DOB often here)
+            (0.0, 0.68, 1.0, 1.0),   # bottom (dates/notes)
+        ]
+
+        for x0, y0, x1, y1 in bands:
+            clip = fitz.Rect(
+                rect.x0 + rect.width * x0,
+                rect.y0 + rect.height * y0,
+                rect.x0 + rect.width * x1,
+                rect.y0 + rect.height * y1,
+            )
+            pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
+            images.append(pix.tobytes("png"))
+
+        # Full page last (fallback)
+        pix_full = page.get_pixmap(matrix=mat, alpha=False)
+        images.append(pix_full.tobytes("png"))
+        return images
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+
         page = doc.load_page(0)
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
@@ -360,6 +419,10 @@ async def dbs_extract(file: UploadFile = File(...)):
     content = await file.read()
     filename = (file.filename or "").lower()
 
+    # Basic upload limit (Render free instances are small)
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Please upload a PDF/image under 25MB.")
+
     fields: Dict[str, Any] = {"certificate_number": None, "surname": None, "dob": None, "issue_date": None}
     source: Dict[str, str] = {"certificate_number": "", "surname": "", "dob": "", "issue_date": ""}
 
@@ -384,7 +447,11 @@ async def dbs_extract(file: UploadFile = File(...)):
             or not fields.get("dob")
             or not fields.get("issue_date")
         ):
-            imgs = pdf_to_images_bytes(content, max_pages=1, dpi=240)
+            try:
+                imgs = pdf_to_images_bytes(content, max_pages=1, dpi=240)
+            except Exception as e:
+                # Return a clean error (UI shows this message instead of generic Gemini hint)
+                raise HTTPException(status_code=400, detail=str(e))
             images = [(b, "image/png") for b in imgs]
             vision = gemini_vision_extract_images(images)
             for k in ["certificate_number", "surname", "dob", "issue_date"]:
