@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DBS Check</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>DBS Check</h1>
+    <p class="muted">Upload DBS PDF/image → Extract → (edit if needed) → Run DBS Check → PDF downloads.</p>
+
+    <section class="card">
+      <h2>Step 1 — Enter details</h2>
+      <div class="grid">
+        <label>
+          Organisation Name
+          <input id="org" type="text" placeholder="e.g., MSL Healthcare" />
+        </label>
+        <label>
+          Forename
+          <input id="forename" type="text" placeholder="e.g., Dhaval" />
+        </label>
+        <label>
+          Surname
+          <input id="surname_user" type="text" placeholder="e.g., Acharya" />
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Step 2 — Upload DBS document</h2>
+      <input id="file" type="file" accept="application/pdf,image/*" />
+      <div class="row">
+        <button id="btnExtract">Extract</button>
+        <span id="extractStatus" class="muted"></span>
+      </div>
+
+      <div class="divider"></div>
+
+      <h3>Extracted (editable)</h3>
+      <div class="grid">
+        <label>
+          Certificate Number
+          <input id="certificate_number" type="text" />
+          <small id="conf_cert" class="muted"></small>
+        </label>
+        <label>
+          Surname (from DBS)
+          <input id="surname_extracted" type="text" />
+          <small id="conf_surname" class="muted"></small>
+        </label>
+        <label>
+          DOB (DD / MM / YYYY)
+          <div class="grid3">
+            <input id="dob_day" type="text" placeholder="DD" />
+            <input id="dob_month" type="text" placeholder="MM" />
+            <input id="dob_year" type="text" placeholder="YYYY" />
+          </div>
+          <small id="conf_dob" class="muted"></small>
+        </label>
+        </div>
+
+      <div class="row">
+        <button id="btnRun" class="primary">Run DBS Check (Download PDF)</button>
+        <span id="runStatus" class="muted"></span>
+      </div>
+
+      <p class="hint">
+        Output filename: <b>{Surname} - DBS Check.pdf</b>
+      </p>
+    </section>
+
+    </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
