@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-import pymupdf as fitz
+import fitz  # PyMuPDF
 import pdfplumber
 
 # Gemini (google-genai) – same import style as your web_app.py
